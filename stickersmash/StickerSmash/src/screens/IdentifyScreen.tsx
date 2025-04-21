@@ -1,9 +1,10 @@
-// src/screens/IdentifyScreen.tsx
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { Platform, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { MainTabParamList } from '../types/navigation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type IdentifyScreenNavigationProp = BottomTabNavigationProp<MainTabParamList, 'Identify'>;
 
@@ -11,8 +12,27 @@ type IdentifyScreenProps = {
   navigation: IdentifyScreenNavigationProp;
 };
 
+type IdentificationResult = {
+  plant_type: string;
+  confidence: number;
+  all_predictions: Array<{
+    plant_type: string;
+    confidence: number;
+  }>;
+};
+
+const API_URL = 'http://127.0.0.1:8000';
+
+// Helper function to show error messages
+const showErrorMessage = (message: string, title: string = 'Error') => {
+  Alert.alert(title, message);
+};
+
 const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
   const [image, setImage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [identificationResult, setIdentificationResult] = useState<IdentificationResult | null>(null);
+  const [showResultCard, setShowResultCard] = useState(false);
 
   const pickImage = async () => {
     // Ask for permission
@@ -33,43 +53,266 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
 
     if (!result.canceled) {
       setImage(result.assets[0].uri);
+      // Reset any previous identification results
+      setIdentificationResult(null);
+      setShowResultCard(false);
     }
   };
 
-  const identifyPlant = () => {
-    // This will be connected to your API later
-    console.log('Identifying plant from image:', image);
-    // For now, mock a success
-    alert('Plant identified! (This will be connected to your API later)');
+  const identifyPlant = async () => {
+    // Ensure an image is selected
+    if (!image) {
+      showErrorMessage('Please select an image first');
+      return;
+    }
+  
+    // Start loading state
+    setLoading(true);
+  
+    try {
+      // Get the authentication token and user ID
+      const token = await AsyncStorage.getItem('userToken');
+      const userId = await AsyncStorage.getItem('userId');
+      
+      if (!token || !userId) {
+        throw new Error('Authentication information not found. Please log in.');
+      }
+  
+      // Create a file from the image URI
+      const fileResponse = await fetch(image);
+      const fileBlob = await fileResponse.blob();
+  
+      // Create form data to send the image
+      const formData = new FormData();
+      
+      // Append the file as a Blob
+      formData.append('file', fileBlob, 'plant_image.jpg');
+  
+      // Send image to backend for identification
+      const response = await fetch(`${API_URL}/api/identify/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+        body: formData
+      });
+  
+      // Check if the response is successful
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Identification error response:', errorText);
+        throw new Error(`Plant identification failed: ${errorText}`);
+      }
+  
+      // Parse the identification result
+      const result = await response.json();
+      
+      // Store the identification result in state
+      setIdentificationResult(result);
+      setShowResultCard(true);
+  
+    } catch (error) {
+      // Handle any errors
+      console.error('Plant identification error:', error);
+      showErrorMessage(
+        error instanceof Error 
+          ? error.message 
+          : 'An unexpected error occurred during plant identification'
+      );
+    } finally {
+      // Reset loading state
+      setLoading(false);
+    }
+  };
+
+  const addToCollection = async () => {
+    if (!identificationResult) {
+      showErrorMessage('No identification result to save');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Get the authentication token and user ID
+      const token = await AsyncStorage.getItem('userToken');
+      const userId = await AsyncStorage.getItem('userId');
+      
+      if (!token || !userId) {
+        throw new Error('Authentication information not found. Please log in.');
+      }
+
+      // Prepare the plant data for submission
+      const plantData = {
+        type: identificationResult.plant_type || 'Unknown',
+        user_id: userId,
+        date_added: new Date().toISOString(),
+        name: identificationResult.plant_type || 'Unidentified Plant',
+        confidence: identificationResult.confidence || 0,
+        all_predictions: identificationResult.all_predictions || []
+      };
+  
+      // Log the plant data to be sent
+      console.log('Plant Data to Submit:', plantData);
+  
+      // Add the identified plant to the collection
+      const addToCollectionResponse = await fetch(`${API_URL}/api/plants/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(plantData)
+      });
+  
+      // Log the collection response details
+      console.log('Add to Collection Response:', {
+        status: addToCollectionResponse.status,
+        headers: Object.fromEntries(addToCollectionResponse.headers.entries()),
+        body: await addToCollectionResponse.clone().text()
+      });
+  
+      // Check if the response is successful
+      if (!addToCollectionResponse.ok) {
+        const collectionErrorText = await addToCollectionResponse.text();
+        console.error('Collection error response:', collectionErrorText);
+        throw new Error(`Failed to add plant to collection: ${collectionErrorText}`);
+      }
+  
+      // Show success message
+      showErrorMessage('Plant added to your collection!', 'Success');
+      
+      // Reset the screen
+      setImage(null);
+      setIdentificationResult(null);
+      setShowResultCard(false);
+      
+    } catch (error) {
+      // Handle any errors
+      console.error('Add to collection error:', error);
+      showErrorMessage(
+        error instanceof Error 
+          ? error.message 
+          : 'An unexpected error occurred when adding plant to collection'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelIdentification = () => {
+    // Reset states
+    setIdentificationResult(null);
+    setShowResultCard(false);
+  };
+
+  const renderResultCard = () => {
+    if (!showResultCard || !identificationResult) return null;
+
+    const predictions = identificationResult.all_predictions || [];
+    
+    return (
+      <View style={styles.resultCard}>
+        <Text style={styles.resultTitle}>Identification Results</Text>
+        
+        <View style={styles.resultItem}>
+          <Text style={styles.resultLabel}>Plant Type:</Text>
+          <Text style={styles.resultValue}>{identificationResult.plant_type || 'Unknown'}</Text>
+        </View>
+        
+        <View style={styles.resultItem}>
+          <Text style={styles.resultLabel}>Confidence:</Text>
+          <Text style={styles.resultValue}>
+            {identificationResult.confidence 
+              ? `${(identificationResult.confidence * 100).toFixed(2)}%` 
+              : 'N/A'}
+          </Text>
+        </View>
+
+        {predictions.length > 0 && (
+          <>
+            <Text style={styles.predictionsTitle}>All Predictions:</Text>
+            <ScrollView style={styles.predictionsContainer}>
+              {predictions.map((pred, index) => (
+                <View key={index} style={styles.predictionItem}>
+                  <Text style={styles.predictionName}>{pred.plant_type}</Text>
+                  <Text style={styles.predictionConfidence}>
+                    {(pred.confidence * 100).toFixed(2)}%
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
+          </>
+        )}
+        
+        <View style={styles.resultButtonContainer}>
+          <TouchableOpacity 
+            style={styles.saveButton} 
+            onPress={addToCollection}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Save to Collection</Text>
+            )}
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.discardButton}
+            onPress={cancelIdentification}
+            disabled={loading}
+          >
+            <Text style={styles.discardText}>Discard</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Identify Plant</Text>
       
-      <View style={styles.uploadArea}>
-        {image ? (
-          <Image source={{ uri: image }} style={styles.image} />
-        ) : (
-          <>
-            <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-              <Text style={styles.uploadText}>+ Upload Image</Text>
-            </TouchableOpacity>
-            <Text style={styles.helperText}>
-              Take a photo or select an image from your gallery
-            </Text>
-          </>
-        )}
-      </View>
+      {!showResultCard ? (
+        // Show upload area when result card is not visible
+        <View style={styles.uploadArea}>
+          {image ? (
+            <Image source={{ uri: image }} style={styles.image} />
+          ) : (
+            <>
+              <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
+                <Text style={styles.uploadText}>+ Upload Image</Text>
+              </TouchableOpacity>
+              <Text style={styles.helperText}>
+                Take a photo or select an image from your gallery
+              </Text>
+            </>
+          )}
+        </View>
+      ) : (
+        // Show the result card when available
+        renderResultCard()
+      )}
       
-      {image && (
+      {image && !showResultCard && (
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.identifyButton} onPress={identifyPlant}>
-            <Text style={styles.buttonText}>Identify Plant</Text>
+          <TouchableOpacity 
+            style={styles.identifyButton} 
+            onPress={identifyPlant}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Identify Plant</Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.cancelButton}
             onPress={() => setImage(null)}
+            disabled={loading}
           >
             <Text style={styles.cancelText}>Cancel</Text>
           </TouchableOpacity>
@@ -133,6 +376,8 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     alignItems: 'center',
     marginBottom: 10,
+    height: 54,
+    justifyContent: 'center',
   },
   buttonText: {
     color: '#fff',
@@ -145,6 +390,86 @@ const styles = StyleSheet.create({
   },
   cancelText: {
     color: '#666',
+    fontSize: 16,
+  },
+  // Result card styles
+  resultCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 20,
+    width: '100%',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  resultTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  resultItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  resultLabel: {
+    fontSize: 16,
+    color: '#666',
+  },
+  resultValue: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  predictionsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 15,
+    marginBottom: 5,
+  },
+  predictionsContainer: {
+    maxHeight: 150,
+    marginBottom: 15,
+  },
+  predictionItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  predictionName: {
+    fontSize: 14,
+  },
+  predictionConfidence: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  resultButtonContainer: {
+    marginTop: 20,
+  },
+  saveButton: {
+    backgroundColor: '#4CAF50',
+    padding: 15,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginBottom: 10,
+    height: 54,
+    justifyContent: 'center',
+  },
+  discardButton: {
+    padding: 15,
+    borderRadius: 5,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ff6b6b',
+  },
+  discardText: {
+    color: '#ff6b6b',
     fontSize: 16,
   },
 });

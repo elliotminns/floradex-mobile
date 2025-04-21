@@ -1,8 +1,16 @@
-// src/screens/ProfileScreen.tsx
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import React, { useState, useEffect } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  Alert, 
+  Platform, 
+  ActivityIndicator 
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CompositeNavigationProp } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MainTabParamList, RootStackParamList } from '../types/navigation';
 
@@ -15,38 +23,209 @@ type ProfileScreenProps = {
   navigation: ProfileScreenNavigationProp;
 };
 
+// Define your API URL
+const API_URL = 'http://127.0.0.1:8000';
+
 const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
-  const handleLogout = () => {
-    navigation.replace('Auth');
+  const [loading, setLoading] = useState(false);
+  const [username, setUsername] = useState<string>('');
+  const [plantCount, setPlantCount] = useState<number>(0);
+
+  // Fetch user data when the screen loads
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        // Get username from storage
+        const storedUsername = await AsyncStorage.getItem('username');
+        if (storedUsername) {
+          setUsername(storedUsername);
+        }
+        
+        // Get token for authorized requests
+        const token = await AsyncStorage.getItem('userToken');
+        
+        if (token) {
+          // Fetch plant count (optional)
+          const response = await fetch(`${API_URL}/api/plants`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          
+          if (response.ok) {
+            const plants = await response.json();
+            setPlantCount(plants.length);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching user data:', error);
+      }
+    };
+    
+    fetchUserData();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      // Clear all authentication tokens
+      await AsyncStorage.removeItem('userToken');
+      await AsyncStorage.removeItem('userId');
+      await AsyncStorage.removeItem('username');
+      
+      // Navigate to Auth screen
+      navigation.replace('Auth');
+    } catch (error) {
+      console.error('Error logging out:', error);
+      Alert.alert('Error', 'Failed to log out');
+    }
   };
 
-  const handleDeleteAccount = () => {
-    // Will implement delete account logic later
-    console.log('Delete account');
-    // After account deletion, navigate to Auth screen
-    navigation.replace('Auth');
+  const handleDeleteAccount = async () => {
+    // Platform-specific confirmation
+    const confirmDeletion = () => {
+      // Web uses window.confirm, others use Alert.alert
+      if (Platform.OS === 'web') {
+        return window.confirm(
+          'Are you absolutely sure you want to delete your account? This action CANNOT be undone.'
+        );
+      }
+      
+      // For mobile platforms, return a Promise that resolves based on Alert choice
+      return new Promise((resolve) => {
+        Alert.alert(
+          'Confirm Account Deletion',
+          'Are you absolutely sure you want to delete your account? This action CANNOT be undone.',
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+              onPress: () => resolve(false)
+            },
+            {
+              text: 'Delete',
+              style: 'destructive',
+              onPress: () => resolve(true)
+            }
+          ],
+          { cancelable: true }
+        );
+      });
+    };
+
+    try {
+      // Show confirmation dialog
+      const isConfirmed = await confirmDeletion();
+      
+      // Exit if not confirmed
+      if (!isConfirmed) {
+        console.log('Account deletion cancelled');
+        return;
+      }
+
+      // Start loading state
+      setLoading(true);
+
+      // Retrieve the authentication token
+      const token = await AsyncStorage.getItem('userToken');
+      
+      // Validate token existence
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      // Perform API call to delete account
+      const response = await fetch(`${API_URL}/api/users/me`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      // Log full response details for debugging
+      console.log('Delete account response status:', response.status);
+      
+      // Check if the response is successful
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Account deletion failed: ${errorText}`);
+      }
+
+      // Clear all stored user data
+      await AsyncStorage.multiRemove([
+        'userToken', 
+        'userId', 
+        'username'
+      ]);
+
+      // Navigate back to authentication screen
+      navigation.replace('Auth');
+
+      // Show success message differently based on platform
+      if (Platform.OS === 'web') {
+        alert('Your account has been successfully deleted.');
+      } else {
+        Alert.alert(
+          'Account Deleted', 
+          'Your account has been successfully deleted.'
+        );
+      }
+
+    } catch (error) {
+      // Handle any errors during the deletion process
+      console.error('Account deletion error:', error);
+      
+      // Show error message differently based on platform
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'An unexpected error occurred while deleting your account.';
+
+      if (Platform.OS === 'web') {
+        alert(errorMessage);
+      } else {
+        Alert.alert(
+          'Deletion Failed', 
+          errorMessage
+        );
+      }
+    } finally {
+      // Ensure loading state is reset
+      setLoading(false);
+    }
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>U</Text>
+          <Text style={styles.avatarText}>{username ? username[0].toUpperCase() : 'U'}</Text>
         </View>
-        <Text style={styles.username}>Username</Text>
+        <Text style={styles.username}>{username || 'Username'}</Text>
       </View>
 
       <View style={styles.infoContainer}>
         <Text style={styles.infoLabel}>Plants in collection:</Text>
-        <Text style={styles.infoValue}>0</Text>
+        <Text style={styles.infoValue}>{plantCount}</Text>
       </View>
 
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+      <TouchableOpacity 
+        style={styles.logoutButton} 
+        onPress={handleLogout}
+        disabled={loading}
+      >
         <Text style={styles.buttonText}>Log Out</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteAccount}>
-        <Text style={styles.deleteText}>Delete Account</Text>
+      <TouchableOpacity 
+        style={styles.deleteButton} 
+        onPress={handleDeleteAccount}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color="#ff3b30" />
+        ) : (
+          <Text style={styles.deleteText}>Delete Account</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -118,6 +297,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#ff3b30',
+    height: 54,
+    justifyContent: 'center',
   },
   deleteText: {
     color: '#ff3b30',

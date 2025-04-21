@@ -1,8 +1,17 @@
 // src/screens/AuthScreen.tsx
 import React, { useState } from 'react';
-import { View, StyleSheet, Text, TextInput, TouchableOpacity } from 'react-native';
+import { 
+  View, 
+  StyleSheet, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  Alert,
+  ActivityIndicator 
+} from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/navigation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type AuthScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Auth'>;
 
@@ -10,13 +19,83 @@ type AuthScreenProps = {
   navigation: AuthScreenNavigationProp;
 };
 
+// Define your API URL - update with your backend URL
+const API_URL = 'http://127.0.0.1:8000'; // For web
+// const API_URL = 'http://10.0.2.2:8000'; // For Android emulator
+// const API_URL = 'http://localhost:8000'; // For iOS simulator
+
 const AuthScreen = ({ navigation }: AuthScreenProps) => {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleAuth = () => {
-    // For now, just navigate to the main app
+  const handleAuth = async () => {
+    if (!username || !password) {
+      Alert.alert('Error', 'Please enter both username and password');
+      return;
+    }
+
+    setLoading(true);
+    
+    try {
+      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+      
+      // For FastAPI OAuth2PasswordRequestForm, use application/x-www-form-urlencoded
+      const formData = new URLSearchParams();
+      formData.append('username', username);
+      formData.append('password', password);
+      
+      console.log('Sending request to:', `${API_URL}${endpoint}`);
+      console.log('With data:', { username, password });
+      
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      });
+
+      // Log the full response for debugging
+      const responseText = await response.text();
+      console.log('Response status:', response.status);
+      console.log('Response text:', responseText);
+      
+      let data;
+      try {
+        // Try to parse the response as JSON
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('Error parsing response:', e);
+        data = { detail: responseText };
+      }
+      
+      if (!response.ok) {
+        throw new Error(data.detail || 'Authentication failed');
+      }
+      
+      // Save the auth token
+      await AsyncStorage.setItem('userToken', data.access_token);
+      await AsyncStorage.setItem('userId', data._id);
+      await AsyncStorage.setItem('username', data.username);
+      
+      // Navigate to the main app
+      navigation.replace('Main');
+    } catch (error) {
+      console.error('Auth error:', error);
+      Alert.alert(
+        'Authentication Failed', 
+        isLogin ? 'Invalid username or password' : 'Failed to create account'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Development bypass function
+  const bypassAuth = () => {
+    Alert.alert('Development Mode', 'Bypassing authentication for testing');
     navigation.replace('Main');
   };
 
@@ -33,6 +112,8 @@ const AuthScreen = ({ navigation }: AuthScreenProps) => {
           placeholder="Username"
           value={username}
           onChangeText={setUsername}
+          autoCapitalize="none"
+          editable={!loading}
         />
         <TextInput
           style={styles.input}
@@ -40,14 +121,31 @@ const AuthScreen = ({ navigation }: AuthScreenProps) => {
           secureTextEntry
           value={password}
           onChangeText={setPassword}
+          editable={!loading}
         />
 
-        <TouchableOpacity style={styles.button} onPress={handleAuth}>
-          <Text style={styles.buttonText}>{isLogin ? 'Log In' : 'Register'}</Text>
+        <TouchableOpacity 
+          style={[styles.button, loading && styles.disabledButton]} 
+          onPress={handleAuth}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>{isLogin ? 'Log In' : 'Register'}</Text>
+          )}
+        </TouchableOpacity>
+        
+        {/* Development bypass button */}
+        <TouchableOpacity 
+          style={[styles.button, styles.devButton]} 
+          onPress={bypassAuth}
+        >
+          <Text style={styles.buttonText}>Dev Mode: Skip Auth</Text>
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity onPress={() => setIsLogin(!isLogin)}>
+      <TouchableOpacity onPress={() => setIsLogin(!isLogin)} disabled={loading}>
         <Text style={styles.switchText}>
           {isLogin ? "Don't have an account? Register" : "Already have an account? Log in"}
         </Text>
@@ -92,6 +190,14 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 5,
     alignItems: 'center',
+    marginBottom: 10,
+  },
+  disabledButton: {
+    opacity: 0.7,
+  },
+  devButton: {
+    backgroundColor: '#999',
+    marginTop: 10,
   },
   buttonText: {
     color: '#fff',
