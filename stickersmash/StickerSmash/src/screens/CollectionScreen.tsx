@@ -1,6 +1,6 @@
 // src/screens/CollectionScreen.tsx
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, RefreshControl, Alert, Button, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, RefreshControl, Alert, Platform, Image } from 'react-native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { MainTabParamList } from '../types/navigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -19,7 +19,11 @@ type Plant = {
   type: string;
   date_added: string;
   confidence: number;
-  // Add other plant properties as needed
+  image_url?: string;
+  all_predictions?: Array<{
+    plant_type: string;
+    confidence: number;
+  }>;
 };
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -29,6 +33,25 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
+
+  // Function to get proper image URI
+  const getImageUri = (imageUrl: string | undefined): string => {
+    if (!imageUrl) return '';
+    
+    // If it starts with 'http', it's already a full URL
+    if (imageUrl.startsWith('http')) {
+      return imageUrl;
+    }
+    
+    // If it starts with '/', it's a server path that needs the API_URL prepended
+    if (imageUrl.startsWith('/')) {
+      return `${API_URL}${imageUrl}`;
+    }
+    
+    // Otherwise, just return the URL as is (could be a local file URI)
+    return imageUrl;
+  };
 
   // Function to fetch plants from the API
   const fetchPlants = async () => {
@@ -43,6 +66,9 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
         setLoading(false);
         return;
       }
+      
+      // Reset image errors when fetching new plants
+      setImageErrors({});
       
       // Try different potential API endpoints
       const endpoints = [
@@ -93,7 +119,7 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
       console.log('Response headers:', headers);
       
       const responseText = await response.text();
-      console.log('Response text:', responseText);
+      console.log('Response text length:', responseText.length);
       
       // Parse the response
       const data = responseText ? JSON.parse(responseText) : [];
@@ -103,6 +129,14 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
       if (Array.isArray(data)) {
         setPlants(data);
         console.log(`Loaded ${data.length} plants`);
+        
+        // Log image URLs for debugging
+        data.forEach(plant => {
+          if (plant.image_url) {
+            console.log(`Plant ${plant._id} has image URL: ${plant.image_url}`);
+            console.log(`Full image URL will be: ${getImageUri(plant.image_url)}`);
+          }
+        });
       } else {
         console.error('Data is not an array:', data);
         setPlants([]);
@@ -223,6 +257,15 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
     );
   };
   
+  // Handle image loading error
+  const handleImageError = (plantId: string, error: any) => {
+    console.error(`Image loading error for plant ${plantId}:`, error);
+    setImageErrors(prev => ({
+      ...prev,
+      [plantId]: true
+    }));
+  };
+  
   // Load plants when the screen is first rendered
   useEffect(() => {
     console.log('CollectionScreen mounted or focused');
@@ -276,17 +319,6 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
     }
   };
 
-  // Debug function to show token
-  const showToken = async () => {
-    const token = await AsyncStorage.getItem('userToken');
-    const userId = await AsyncStorage.getItem('userId');
-    
-    showMessage(
-      `Token: ${token ? 'Found (first 10 chars): ' + token.substring(0, 10) + '...' : 'Not found'}\nUser ID: ${userId || 'Not found'}`,
-      'Debug Info'
-    );
-  };
-
   // Render loading state
   if (loading) {
     return (
@@ -301,9 +333,6 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>My Plant Collection</Text>
-        <TouchableOpacity onPress={showToken} style={styles.debugButton}>
-          <Text style={styles.debugButtonText}>Debug</Text>
-        </TouchableOpacity>
       </View>
       
       {error && (
@@ -322,10 +351,21 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
             keyExtractor={(item) => item._id}
             renderItem={({ item }) => (
               <View style={styles.plantCard}>
-                <TouchableOpacity
-                  style={styles.plantDetails}
-                  onPress={() => handlePlantPress(item)}
-                >
+                {/* Plant Image or Placeholder */}
+                {item.image_url && !imageErrors[item._id] ? (
+                  <Image 
+                    source={{ uri: getImageUri(item.image_url) }}
+                    style={styles.plantImage} 
+                    onError={(e) => handleImageError(item._id, e.nativeEvent.error)}
+                  />
+                ) : (
+                  <View style={styles.placeholderImage}>
+                    <Text style={styles.placeholderText}>🌿</Text>
+                  </View>
+                )}
+                
+                {/* Plant Details */}
+                <View style={styles.plantDetails}>
                   <Text style={styles.plantName}>{item.name || item.type}</Text>
                   <Text style={styles.plantType}>{item.type}</Text>
                   <Text style={styles.plantDate}>
@@ -336,65 +376,15 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
                       Confidence: {(item.confidence * 100).toFixed(0)}%
                     </Text>
                   )}
-                </TouchableOpacity>
-                
-                {/* Using Button component instead of TouchableOpacity */}
-                <View style={styles.deleteButtonContainer}>
-                  <Button
-                    title="DELETE"
-                    color="#f44336"
-                    onPress={() => {
-                      console.log('⭐ Button component delete for plant:', item._id);
-                      
-                      showDeleteConfirmation(
-                        `Are you sure you want to remove "${item.name || item.type}" from your collection?`,
-                        'Delete Plant',
-                        async () => {
-                          console.log('⭐ Delete confirmed with Button component');
-                          
-                          try {
-                            console.log('⭐⭐⭐ DIRECT INLINE DELETE for:', item._id);
-                            const token = await AsyncStorage.getItem('userToken');
-                            if (!token) {
-                              showMessage('Authentication failed', 'Error');
-                              return;
-                            }
-                            
-                            // Try the endpoint that worked for the test button
-                            const url = `${API_URL}/api/plants/${item._id}`;
-                            console.log('⭐⭐⭐ Sending direct delete to:', url);
-                            
-                            const response = await fetch(url, {
-                              method: 'DELETE',
-                              headers: {
-                                'Authorization': `Bearer ${token}`,
-                                'Content-Type': 'application/json'
-                              }
-                            });
-                            
-                            console.log('⭐⭐⭐ Delete response:', response.status);
-                            
-                            if (response.ok) {
-                              console.log('⭐⭐⭐ Delete successful!');
-                              // Update UI after successful deletion
-                              setPlants(currentPlants => 
-                                currentPlants.filter(p => p._id !== item._id)
-                              );
-                            } else {
-                              const errorText = await response.text();
-                              console.log('⭐⭐⭐ Delete failed:', errorText);
-                              showMessage('Failed to delete plant', 'Error');
-                            }
-                          } catch (error) {
-                            console.error('⭐⭐⭐ Delete error:', error);
-                            showMessage('An error occurred', 'Error');
-                          }
-                        },
-                        () => console.log('Delete cancelled')
-                      );
-                    }}
-                  />
                 </View>
+                
+                {/* Delete Button */}
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={() => handleDeletePlant(item)}
+                >
+                  <Text style={styles.deleteButtonText}>DELETE</Text>
+                </TouchableOpacity>
               </View>
             )}
             numColumns={2}
@@ -473,10 +463,11 @@ const styles = StyleSheet.create({
   plantCard: {
     flex: 1,
     margin: 8,
-    height: 190, // Increased height to accommodate delete button
+    minHeight: 230, // Fixed minimum height
+    maxHeight: 280, // Maximum height instead of fixed height
     backgroundColor: '#fff',
     borderRadius: 10,
-    padding: 15,
+    padding: 12,
     justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
@@ -486,56 +477,65 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 1,
+    overflow: 'hidden', // Prevents children from flowing out of the card
+  },
+  plantImage: {
+    width: '100%',
+    height: 90,
+    borderRadius: 8,
+    marginBottom: 8,
+    resizeMode: 'cover',
+  },
+  placeholderImage: {
+    width: '100%',
+    height: 90,
+    backgroundColor: '#e0f2e9',
+    borderRadius: 8,
+    marginBottom: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderText: {
+    fontSize: 36,
   },
   plantDetails: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   plantName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
-    marginBottom: 5,
+    marginBottom: 4,
     textAlign: 'center',
   },
   plantType: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
-    marginBottom: 5,
+    marginBottom: 4,
     textAlign: 'center',
   },
   plantDate: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#999',
-    marginBottom: 5,
+    marginBottom: 2,
   },
   plantConfidence: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#4CAF50',
-    marginBottom: 10,
-  },
-  deleteButtonContainer: {
-    width: '80%',
-    marginTop: 10,
-    marginBottom: 5,
+    marginBottom: 4,
   },
   deleteButton: {
     backgroundColor: '#f44336',
-    paddingVertical: 10,  // Increased for larger touch target
-    paddingHorizontal: 15,
+    padding: 8,
     borderRadius: 5,
-    marginTop: 5,
-    width: '80%',
+    width: '100%',
     alignItems: 'center',
-    elevation: 3,       // Add shadow for Android
-    shadowColor: '#000', // Shadow for iOS
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
+    marginTop: 'auto', // Pushes the button to the bottom
   },
   deleteButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: 'bold',
   },
   identifyButton: {
@@ -569,30 +569,7 @@ const styles = StyleSheet.create({
   retryText: {
     color: '#fff',
     fontSize: 14,
-  },
-  debugButton: {
-    backgroundColor: '#607d8b',
-    padding: 8,
-    borderRadius: 5,
-  },
-  debugButtonText: {
-    color: '#fff',
-    fontSize: 12,
-  },
-  // Direct delete button style - make it more prominent
-  deletePlantButton: {
-    backgroundColor: '#ff1744',
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 5,
-    marginTop: 20,
-    alignSelf: 'center',
-  },
-  deletePlantButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
+  }
 });
 
 export default CollectionScreen;

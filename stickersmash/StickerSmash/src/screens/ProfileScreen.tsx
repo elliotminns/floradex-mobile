@@ -13,6 +13,7 @@ import { CompositeNavigationProp } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MainTabParamList, RootStackParamList } from '../types/navigation';
+import { useFocusEffect } from '@react-navigation/native';
 
 type ProfileScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Profile'>,
@@ -31,37 +32,48 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
   const [username, setUsername] = useState<string>('');
   const [plantCount, setPlantCount] = useState<number>(0);
 
+  const fetchUserData = async () => {
+    try {
+      // Get username from storage
+      const storedUsername = await AsyncStorage.getItem('username');
+      if (storedUsername) {
+        setUsername(storedUsername);
+      }
+      
+      // Get token for authorized requests
+      const token = await AsyncStorage.getItem('userToken');
+      
+      if (token) {
+        // Fetch plant count
+        const response = await fetch(`${API_URL}/api/plants`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (response.ok) {
+          const plants = await response.json();
+          setPlantCount(plants.length);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    }
+  };
+
+  // Refresh data whenever the screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log('ProfileScreen focused - refreshing data');
+      fetchUserData();
+      return () => {
+        // Optional cleanup if needed
+      };
+    }, [])
+  );
+
   // Fetch user data when the screen loads
   useEffect(() => {
-    const fetchUserData = async () => {
-      try {
-        // Get username from storage
-        const storedUsername = await AsyncStorage.getItem('username');
-        if (storedUsername) {
-          setUsername(storedUsername);
-        }
-        
-        // Get token for authorized requests
-        const token = await AsyncStorage.getItem('userToken');
-        
-        if (token) {
-          // Fetch plant count (optional)
-          const response = await fetch(`${API_URL}/api/plants`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          
-          if (response.ok) {
-            const plants = await response.json();
-            setPlantCount(plants.length);
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching user data:', error);
-      }
-    };
-    
     fetchUserData();
   }, []);
 
@@ -192,6 +204,8 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
       // Ensure loading state is reset
       setLoading(false);
     }
+
+    
   };
 
   return (

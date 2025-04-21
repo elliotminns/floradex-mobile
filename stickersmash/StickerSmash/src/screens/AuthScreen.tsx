@@ -93,12 +93,6 @@ const AuthScreen = ({ navigation }: AuthScreenProps) => {
     }
   };
 
-  // Development bypass function
-  const bypassAuth = () => {
-    Alert.alert('Development Mode', 'Bypassing authentication for testing');
-    navigation.replace('Main');
-  };
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Floradex</Text>
@@ -136,13 +130,6 @@ const AuthScreen = ({ navigation }: AuthScreenProps) => {
           )}
         </TouchableOpacity>
         
-        {/* Development bypass button */}
-        <TouchableOpacity 
-          style={[styles.button, styles.devButton]} 
-          onPress={bypassAuth}
-        >
-          <Text style={styles.buttonText}>Dev Mode: Skip Auth</Text>
-        </TouchableOpacity>
       </View>
 
       <TouchableOpacity onPress={() => setIsLogin(!isLogin)} disabled={loading}>

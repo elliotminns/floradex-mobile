@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
-import { Platform, Alert, ActivityIndicator } from 'react-native';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  Image, 
+  ScrollView, 
+  ActivityIndicator, 
+  Platform, 
+  Alert 
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { MainTabParamList } from '../types/navigation';
@@ -19,6 +28,7 @@ type IdentificationResult = {
     plant_type: string;
     confidence: number;
   }>;
+  image_url?: string; // Field for storing the image URL
 };
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -108,6 +118,14 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
       // Parse the identification result
       const result = await response.json();
       
+      // Always use the local image URI for display, regardless of what the server returns
+      if (image) {
+        result.image_url = image;
+        console.log('Using local image URI:', image);
+      }
+      
+      console.log('Identification result with local image:', result);
+      
       // Store the identification result in state
       setIdentificationResult(result);
       setShowResultCard(true);
@@ -143,6 +161,29 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
         throw new Error('Authentication information not found. Please log in.');
       }
 
+      // Convert image to base64 if it's a local URI
+      let imageData = "";
+      if (image) {
+        try {
+          console.log('Converting image to base64:', image);
+          const response = await fetch(image);
+          const blob = await response.blob();
+          imageData = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              // Extract only the base64 part without the data:image/jpeg;base64, prefix
+              const result = reader.result as string;
+              const base64data = result.split(',')[1] || result;
+              resolve(base64data);
+            };
+            reader.readAsDataURL(blob);
+          });
+          console.log('Successfully converted image to base64, length:', imageData.length);
+        } catch (error) {
+          console.error("Error converting image:", error);
+        }
+      }
+
       // Prepare the plant data for submission
       const plantData = {
         type: identificationResult.plant_type || 'Unknown',
@@ -150,11 +191,15 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
         date_added: new Date().toISOString(),
         name: identificationResult.plant_type || 'Unidentified Plant',
         confidence: identificationResult.confidence || 0,
-        all_predictions: identificationResult.all_predictions || []
+        all_predictions: identificationResult.all_predictions || [],
+        image_data: imageData // Send the base64 image data instead of URL
       };
   
-      // Log the plant data to be sent
-      console.log('Plant Data to Submit:', plantData);
+      // Log the plant data to be sent (without the full image data for readability)
+      console.log('Plant Data to Submit:', {
+        ...plantData,
+        image_data: imageData ? `[Base64 string of length: ${imageData.length}]` : 'None'
+      });
   
       // Add the identified plant to the collection
       const addToCollectionResponse = await fetch(`${API_URL}/api/plants/`, {
@@ -170,14 +215,21 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
       console.log('Add to Collection Response:', {
         status: addToCollectionResponse.status,
         headers: Object.fromEntries(addToCollectionResponse.headers.entries()),
-        body: await addToCollectionResponse.clone().text()
       });
+
+      const responseText = await addToCollectionResponse.text();
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+        console.log('Response data:', responseData);
+      } catch (e) {
+        console.log('Response text (not JSON):', responseText);
+      }
   
       // Check if the response is successful
       if (!addToCollectionResponse.ok) {
-        const collectionErrorText = await addToCollectionResponse.text();
-        console.error('Collection error response:', collectionErrorText);
-        throw new Error(`Failed to add plant to collection: ${collectionErrorText}`);
+        console.error('Collection error response:', responseText);
+        throw new Error(`Failed to add plant to collection: ${responseText}`);
       }
   
       // Show success message
@@ -215,6 +267,14 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
     return (
       <View style={styles.resultCard}>
         <Text style={styles.resultTitle}>Identification Results</Text>
+        
+        {/* Display the identified plant image if available */}
+        {identificationResult.image_url && (
+          <Image 
+            source={{ uri: identificationResult.image_url }} 
+            style={styles.resultImage} 
+          />
+        )}
         
         <View style={styles.resultItem}>
           <Text style={styles.resultLabel}>Plant Type:</Text>
@@ -272,62 +332,74 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Identify Plant</Text>
-      
-      {!showResultCard ? (
-        // Show upload area when result card is not visible
-        <View style={styles.uploadArea}>
-          {image ? (
-            <Image source={{ uri: image }} style={styles.image} />
-          ) : (
-            <>
-              <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-                <Text style={styles.uploadText}>+ Upload Image</Text>
-              </TouchableOpacity>
-              <Text style={styles.helperText}>
-                Take a photo or select an image from your gallery
-              </Text>
-            </>
-          )}
-        </View>
-      ) : (
-        // Show the result card when available
-        renderResultCard()
-      )}
-      
-      {image && !showResultCard && (
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity 
-            style={styles.identifyButton} 
-            onPress={identifyPlant}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
+    <ScrollView 
+      style={styles.scrollContainer} 
+      contentContainerStyle={styles.scrollContentContainer}
+    >
+      <View style={styles.container}>
+        <Text style={styles.title}>Identify Plant</Text>
+        
+        {!showResultCard ? (
+          // Show upload area when result card is not visible
+          <View style={styles.uploadArea}>
+            {image ? (
+              <Image source={{ uri: image }} style={styles.image} />
             ) : (
-              <Text style={styles.buttonText}>Identify Plant</Text>
+              <>
+                <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
+                  <Text style={styles.uploadText}>+ Upload Image</Text>
+                </TouchableOpacity>
+                <Text style={styles.helperText}>
+                  Take a photo or select an image from your gallery
+                </Text>
+              </>
             )}
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.cancelButton}
-            onPress={() => setImage(null)}
-            disabled={loading}
-          >
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
+          </View>
+        ) : (
+          // Show the result card when available
+          renderResultCard()
+        )}
+        
+        {image && !showResultCard && (
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity 
+              style={styles.identifyButton} 
+              onPress={identifyPlant}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Identify Plant</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.cancelButton}
+              onPress={() => setImage(null)}
+              disabled={loading}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  scrollContainer: {
     flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  scrollContentContainer: {
+    flexGrow: 1,
+    paddingBottom: 30, // Extra padding at the bottom
+  },
+  container: {
     alignItems: 'center',
     padding: 20,
-    backgroundColor: '#f5f5f5',
+    width: '100%',
   },
   title: {
     fontSize: 24,
@@ -403,6 +475,13 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+  },
+  resultImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 15,
+    resizeMode: 'cover',
   },
   resultTitle: {
     fontSize: 20,
