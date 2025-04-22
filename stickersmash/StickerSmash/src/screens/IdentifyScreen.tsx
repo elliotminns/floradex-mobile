@@ -21,6 +21,7 @@ type IdentifyScreenProps = {
   navigation: IdentifyScreenNavigationProp;
 };
 
+// Updated type to include care_info
 type IdentificationResult = {
   plant_type: string;
   confidence: number;
@@ -29,6 +30,14 @@ type IdentificationResult = {
     confidence: number;
   }>;
   image_url?: string; // Field for storing the image URL
+  care_info?: {
+    care_instructions?: string;
+    watering_frequency?: string;
+    sunlight_requirements?: string;
+    humidity?: string;
+    temperature?: string;
+    fertilization?: string;
+  };
 };
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -192,7 +201,7 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
         name: identificationResult.plant_type || 'Unidentified Plant',
         confidence: identificationResult.confidence || 0,
         all_predictions: identificationResult.all_predictions || [],
-        image_data: imageData // Send the base64 image data instead of URL
+        image_data: imageData, // Send the base64 image data instead of URL
       };
   
       // Log the plant data to be sent (without the full image data for readability)
@@ -259,54 +268,94 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
     setShowResultCard(false);
   };
 
+  // Helper function to render a care info item if it exists (styled like PlantDetailScreen)
+  const renderCareInfoItem = (label: string, value?: string) => {
+    if (!value) return null;
+    
+    return (
+      <View style={styles.infoRow}>
+        <Text style={styles.infoLabel}>{label}:</Text>
+        <Text style={styles.infoValue}>{value}</Text>
+      </View>
+    );
+  };
+
   const renderResultCard = () => {
     if (!showResultCard || !identificationResult) return null;
 
     const predictions = identificationResult.all_predictions || [];
+    const careInfo = identificationResult.care_info || {};
     
     return (
-      <View style={styles.resultCard}>
-        <Text style={styles.resultTitle}>Identification Results</Text>
+      <View style={styles.resultsContainer}>
+        {/* Plant image */}
+        <View style={styles.imageCard}>
+          {identificationResult.image_url && (
+            <Image 
+              source={{ uri: identificationResult.image_url }} 
+              style={styles.resultImage} 
+            />
+          )}
+        </View>
         
-        {/* Display the identified plant image if available */}
-        {identificationResult.image_url && (
-          <Image 
-            source={{ uri: identificationResult.image_url }} 
-            style={styles.resultImage} 
-          />
+        {/* Identification results card */}
+        <View style={styles.infoCard}>
+          <Text style={styles.infoTitle}>Plant Details</Text>
+          
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Plant Type:</Text>
+            <Text style={styles.infoValue}>{identificationResult.plant_type || 'Unknown'}</Text>
+          </View>
+          
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Confidence:</Text>
+            <Text style={styles.infoValue}>
+              {identificationResult.confidence 
+                ? `${(identificationResult.confidence * 100).toFixed(0)}%` 
+                : 'N/A'}
+            </Text>
+          </View>
+        </View>
+        
+        {/* Care instructions card */}
+        {careInfo && Object.keys(careInfo).length > 0 && (
+          <View style={styles.infoCard}>
+            <Text style={styles.infoTitle}>Care Instructions</Text>
+            
+            {careInfo.care_instructions && (
+              <View style={styles.mainCareInstructions}>
+                <Text style={styles.careInstructionsText}>
+                  {careInfo.care_instructions}
+                </Text>
+              </View>
+            )}
+            
+            {renderCareInfoItem('Watering', careInfo.watering_frequency)}
+            {renderCareInfoItem('Sunlight', careInfo.sunlight_requirements)}
+            {renderCareInfoItem('Humidity', careInfo.humidity)}
+            {renderCareInfoItem('Temperature', careInfo.temperature)}
+            {renderCareInfoItem('Fertilization', careInfo.fertilization)}
+          </View>
         )}
-        
-        <View style={styles.resultItem}>
-          <Text style={styles.resultLabel}>Plant Type:</Text>
-          <Text style={styles.resultValue}>{identificationResult.plant_type || 'Unknown'}</Text>
-        </View>
-        
-        <View style={styles.resultItem}>
-          <Text style={styles.resultLabel}>Confidence:</Text>
-          <Text style={styles.resultValue}>
-            {identificationResult.confidence 
-              ? `${(identificationResult.confidence * 100).toFixed(2)}%` 
-              : 'N/A'}
-          </Text>
-        </View>
 
+        {/* Other possibilities card */}
         {predictions.length > 0 && (
-          <>
-            <Text style={styles.predictionsTitle}>All Predictions:</Text>
-            <ScrollView style={styles.predictionsContainer}>
-              {predictions.map((pred, index) => (
-                <View key={index} style={styles.predictionItem}>
-                  <Text style={styles.predictionName}>{pred.plant_type}</Text>
-                  <Text style={styles.predictionConfidence}>
-                    {(pred.confidence * 100).toFixed(2)}%
-                  </Text>
-                </View>
-              ))}
-            </ScrollView>
-          </>
+          <View style={styles.infoCard}>
+            <Text style={styles.infoTitle}>Other Possibilities</Text>
+            
+            {predictions.map((pred, index) => (
+              <View key={index} style={styles.infoRow}>
+                <Text style={styles.predictionName}>{pred.plant_type}</Text>
+                <Text style={styles.predictionConfidence}>
+                  {(pred.confidence * 100).toFixed(0)}%
+                </Text>
+              </View>
+            ))}
+          </View>
         )}
         
-        <View style={styles.resultButtonContainer}>
+        {/* Action buttons */}
+        <View style={styles.buttonContainer}>
           <TouchableOpacity 
             style={styles.saveButton} 
             onPress={addToCollection}
@@ -438,11 +487,100 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
   },
+  // Results section
+  resultsContainer: {
+    width: '100%',
+  },
+  imageCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 2,
+  },
+  resultImage: {
+    width: '100%',
+    height: 200,
+    resizeMode: 'cover',
+  },
+  // Info card - consistent with PlantDetailScreen
+  infoCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 2,
+  },
+  infoTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: '#4CAF50',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  infoLabel: {
+    fontSize: 16,
+    color: '#666',
+  },
+  infoValue: {
+    fontSize: 16,
+    fontWeight: '500',
+    flex: 1,
+    textAlign: 'right',
+    paddingLeft: 8,
+  },
+  // Care instructions - consistent with PlantDetailScreen
+  mainCareInstructions: {
+    backgroundColor: '#f1f8e9',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: '#7cb342',
+  },
+  careInstructionsText: {
+    fontSize: 16,
+    lineHeight: 22,
+    color: '#33691e',
+  },
+  // Predictions
+  predictionName: {
+    fontSize: 16,
+  },
+  predictionConfidence: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#4CAF50',
+  },
+  // Action buttons
   buttonContainer: {
     width: '100%',
     marginTop: 20,
   },
   identifyButton: {
+    backgroundColor: '#4CAF50',
+    padding: 15,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginBottom: 10,
+    height: 54,
+    justifyContent: 'center',
+  },
+  saveButton: {
     backgroundColor: '#4CAF50',
     padding: 15,
     borderRadius: 5,
@@ -463,82 +601,6 @@ const styles = StyleSheet.create({
   cancelText: {
     color: '#666',
     fontSize: 16,
-  },
-  // Result card styles
-  resultCard: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 20,
-    width: '100%',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  resultImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 15,
-    resizeMode: 'cover',
-  },
-  resultTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  resultItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  resultLabel: {
-    fontSize: 16,
-    color: '#666',
-  },
-  resultValue: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  predictionsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 15,
-    marginBottom: 5,
-  },
-  predictionsContainer: {
-    maxHeight: 150,
-    marginBottom: 15,
-  },
-  predictionItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  predictionName: {
-    fontSize: 14,
-  },
-  predictionConfidence: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  resultButtonContainer: {
-    marginTop: 20,
-  },
-  saveButton: {
-    backgroundColor: '#4CAF50',
-    padding: 15,
-    borderRadius: 5,
-    alignItems: 'center',
-    marginBottom: 10,
-    height: 54,
-    justifyContent: 'center',
   },
   discardButton: {
     padding: 15,

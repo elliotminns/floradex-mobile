@@ -1,34 +1,42 @@
 // src/screens/CollectionScreen.tsx
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, RefreshControl, Alert, Platform, Image } from 'react-native';
-import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { MainTabParamList } from '../types/navigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { showMessage, showDeleteConfirmation } from '../utils/alertUtils';
 
-type CollectionScreenNavigationProp = BottomTabNavigationProp<MainTabParamList, 'Collection'>;
+// Import navigation types
+import { useNavigation } from '@react-navigation/native';
+import { CompositeNavigationProp } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MainTabParamList, RootStackParamList } from '../types/navigation';
 
-type CollectionScreenProps = {
-  navigation: CollectionScreenNavigationProp;
-};
+// Define the composite navigation type for accessing both tab and stack navigators
+type CollectionScreenNavigationProp = CompositeNavigationProp<
+  BottomTabNavigationProp<MainTabParamList, 'Collection'>,
+  NativeStackNavigationProp<RootStackParamList>
+>;
 
-// Define a type for plant items
-type Plant = {
+// Define the Plant interface for this component
+interface Plant {
   _id: string;
   name: string;
   type: string;
   date_added: string;
-  confidence: number;
   image_url?: string;
+  confidence: number;
   all_predictions?: Array<{
     plant_type: string;
     confidence: number;
   }>;
-};
+}
 
 const API_URL = 'http://127.0.0.1:8000';
 
-const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
+const CollectionScreen = () => {
+  // Use the useNavigation hook with our composite type
+  const navigation = useNavigation<CollectionScreenNavigationProp>();
+  
   const [plants, setPlants] = useState<Plant[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -150,112 +158,6 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
       setRefreshing(false);
     }
   };
-
-  // Function to delete a plant with enhanced debugging
-  const deletePlant = async (plantId: string) => {
-    try {
-      console.log('⭐⭐ deletePlant function called with ID:', plantId);
-      
-      // Get the authentication token
-      const token = await AsyncStorage.getItem('userToken');
-      
-      if (!token) {
-        console.error('⭐⭐ No authentication token found');
-        Alert.alert('Error', 'Authentication token not found. Please log in again.');
-        return;
-      }
-      
-      console.log('⭐⭐ Auth token retrieved successfully');
-      console.log('⭐⭐ Deleting plant with ID:', plantId);
-      
-      // Try different potential API endpoints for deletion
-      const endpoints = [
-        `/api/plants/${plantId}`,  // Original endpoint
-        `/plants/${plantId}`,      // New endpoint
-        `/api/userplants/${plantId}`, // Possibly renamed endpoint
-        `/userplants/${plantId}`    // Another possible endpoint
-      ];
-      
-      let response = null;
-      let validEndpoint = null;
-      
-      // Try each endpoint until one works
-      for (const endpoint of endpoints) {
-        const url = `${API_URL}${endpoint}`;
-        console.log('⭐⭐ Trying to delete plant using:', url);
-        
-        try {
-          console.log('⭐⭐ Sending DELETE request to:', url);
-          const tempResponse = await fetch(url, {
-            method: 'DELETE',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          
-          console.log(`⭐⭐ Delete response status for ${endpoint}:`, tempResponse.status);
-          console.log(`⭐⭐ Response ok:`, tempResponse.ok);
-          
-          // Try to get response text for debugging
-          try {
-            const responseText = await tempResponse.text();
-            console.log(`⭐⭐ Response text for ${endpoint}:`, responseText);
-          } catch (textError) {
-            console.log(`⭐⭐ Could not get response text:`, textError);
-          }
-          
-          if (tempResponse.ok) {
-            response = tempResponse;
-            validEndpoint = url;
-            console.log('⭐⭐ Found working endpoint:', validEndpoint);
-            break;
-          }
-        } catch (e) {
-          console.log(`⭐⭐ Delete endpoint ${endpoint} failed:`, e);
-        }
-      }
-      
-      if (!response) {
-        console.error('⭐⭐ All delete endpoints failed');
-        throw new Error('Failed to delete plant using any endpoint');
-      }
-      
-      console.log('⭐⭐ Successfully deleted using endpoint:', validEndpoint);
-      
-      // Remove the plant from local state
-      setPlants(prevPlants => {
-        console.log('⭐⭐ Updating local state, removing plant:', plantId);
-        console.log('⭐⭐ Current plants count:', prevPlants.length);
-        const newPlants = prevPlants.filter(plant => plant._id !== plantId);
-        console.log('⭐⭐ New plants count:', newPlants.length);
-        return newPlants;
-      });
-      
-      // Show success message
-      console.log('⭐⭐ Showing success alert');
-      Alert.alert('Success', 'Plant has been removed from your collection');
-      
-    } catch (error) {
-      console.error('⭐⭐ Error deleting plant:', error);
-      Alert.alert('Error', `Failed to delete plant: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-  
-  // Confirm and handle plant deletion with enhanced debugging
-  const handleDeletePlant = (plant: Plant) => {
-    console.log('⭐ handleDeletePlant called for plant:', plant._id);
-    
-    showDeleteConfirmation(
-      `Are you sure you want to remove "${plant.name || plant.type}" from your collection?`,
-      'Delete Plant',
-      () => {
-        console.log('⭐ Delete confirmed for plant:', plant._id);
-        deletePlant(plant._id);
-      },
-      () => console.log('Delete cancelled')
-    );
-  };
   
   // Handle image loading error
   const handleImageError = (plantId: string, error: any) => {
@@ -287,36 +189,12 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
     fetchPlants();
   };
   
-  // Handle plant item press - show details and options
+  // Handle plant item press - navigate to plant detail screen
   const handlePlantPress = (plant: Plant) => {
-    console.log('⭐ Plant card pressed for plant:', plant._id);
+    console.log('Plant card pressed for plant:', plant._id);
     
-    if (Platform.OS === 'web') {
-      // For web, show details and provide direct action buttons
-      const details = `Type: ${plant.type}\nAdded: ${new Date(plant.date_added).toLocaleDateString()}\nConfidence: ${(plant.confidence * 100).toFixed(0)}%`;
-      showMessage(details, plant.name || plant.type);
-    } else {
-      // For mobile, use native Alert
-      Alert.alert(
-        plant.name || plant.type,
-        `Type: ${plant.type}\nAdded: ${new Date(plant.date_added).toLocaleDateString()}\nConfidence: ${(plant.confidence * 100).toFixed(0)}%`,
-        [
-          {
-            text: 'Close',
-            style: 'cancel',
-            onPress: () => console.log('Details dialog closed')
-          },
-          {
-            text: 'Delete Plant',
-            onPress: () => {
-              console.log('⭐ Delete requested from details dialog for plant:', plant._id);
-              handleDeletePlant(plant);
-            },
-            style: 'destructive'
-          }
-        ]
-      );
-    }
+    // Use the root stack navigation to go to PlantDetail screen
+    navigation.navigate('PlantDetail', { plant });
   };
 
   // Render loading state
@@ -350,7 +228,10 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
             data={plants}
             keyExtractor={(item) => item._id}
             renderItem={({ item }) => (
-              <View style={styles.plantCard}>
+              <TouchableOpacity 
+                style={styles.plantCard}
+                onPress={() => handlePlantPress(item)}
+              >
                 {/* Plant Image or Placeholder */}
                 {item.image_url && !imageErrors[item._id] ? (
                   <Image 
@@ -378,14 +259,7 @@ const CollectionScreen = ({ navigation }: CollectionScreenProps) => {
                   )}
                 </View>
                 
-                {/* Delete Button */}
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => handleDeletePlant(item)}
-                >
-                  <Text style={styles.deleteButtonText}>DELETE</Text>
-                </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
             )}
             numColumns={2}
             contentContainerStyle={styles.listContent}
