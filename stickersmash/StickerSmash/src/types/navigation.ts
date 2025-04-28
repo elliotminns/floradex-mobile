@@ -14,3 +14,6 @@ export type MainTabParamList = {
   Identify: undefined;
   Profile: undefined;
 };
+
+//Link to your internal IP address on port :8000
+export const API_URL = 'http://192.168.0.101:8000';

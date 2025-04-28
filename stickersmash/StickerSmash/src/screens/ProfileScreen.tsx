@@ -15,6 +15,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MainTabParamList, RootStackParamList } from '../types/navigation';
 import { useFocusEffect } from '@react-navigation/native';
 
+
+import { API_URL } from '../types/navigation';
+
 type ProfileScreenNavigationProp = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, 'Profile'>,
   NativeStackNavigationProp<RootStackParamList>
@@ -25,7 +28,6 @@ type ProfileScreenProps = {
 };
 
 // Define your API URL
-const API_URL = 'http://127.0.0.1:8000';
 
 const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
   const [loading, setLoading] = useState(false);
@@ -45,7 +47,7 @@ const ProfileScreen = ({ navigation }: ProfileScreenProps) => {
       
       if (token) {
         // Fetch plant count
-        const response = await fetch(`${API_URL}/api/plants`, {
+        const response = await fetch(`${API_URL}/api/plants/`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }

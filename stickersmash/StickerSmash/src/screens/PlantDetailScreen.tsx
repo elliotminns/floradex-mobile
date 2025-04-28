@@ -16,6 +16,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { RootStackParamList } from '../types/navigation';
+import { API_URL } from '../types/navigation';
 
 // Define prediction type
 export type Prediction = {
@@ -49,7 +50,6 @@ type PlantDetailRouteProp = RouteProp<RootStackParamList, 'PlantDetail'>;
 type PlantDetailNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 // API base URL
-const API_URL = 'http://127.0.0.1:8000';
 
 // Export as a default function component without parameter destructuring
 const PlantDetailScreen = () => {

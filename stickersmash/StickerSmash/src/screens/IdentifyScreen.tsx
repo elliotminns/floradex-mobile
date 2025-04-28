@@ -8,12 +8,18 @@ import {
   ScrollView, 
   ActivityIndicator, 
   Platform, 
-  Alert 
+  Alert,
+  Dimensions
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { MainTabParamList } from '../types/navigation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { API_URL } from '../types/navigation';
+
+// Get screen dimensions for responsive sizing
+const { width, height } = Dimensions.get('window');
 
 type IdentifyScreenNavigationProp = BottomTabNavigationProp<MainTabParamList, 'Identify'>;
 
@@ -40,8 +46,6 @@ type IdentificationResult = {
   };
 };
 
-const API_URL = 'http://127.0.0.1:8000';
-
 // Helper function to show error messages
 const showErrorMessage = (message: string, title: string = 'Error') => {
   Alert.alert(title, message);
@@ -53,18 +57,18 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
   const [identificationResult, setIdentificationResult] = useState<IdentificationResult | null>(null);
   const [showResultCard, setShowResultCard] = useState(false);
 
-  const pickImage = async () => {
-    // Ask for permission
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  // Function to take a photo using the camera
+  const takePhoto = async () => {
+    // Ask for camera permission
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
     
     if (status !== 'granted') {
-      alert('Sorry, we need camera roll permissions to make this work!');
+      alert('Sorry, we need camera permissions to make this work!');
       return;
     }
     
-    // Pick the image
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    // Launch camera
+    let result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [4, 3],
       quality: 1,
@@ -76,6 +80,54 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
       setIdentificationResult(null);
       setShowResultCard(false);
     }
+  };
+
+  // Function to pick an image from the library
+  const pickImage = async () => {
+    // Ask for permission
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (status !== 'granted') {
+      alert('Sorry, we need media library permissions to make this work!');
+      return;
+    }
+    
+    // Pick the image - using string value for mediaTypes
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images',
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+      setImage(result.assets[0].uri);
+      // Reset any previous identification results
+      setIdentificationResult(null);
+      setShowResultCard(false);
+    }
+  };
+
+  // Function to show image selection options
+  const showImageOptions = () => {
+    Alert.alert(
+      'Select Image Source',
+      'How would you like to add a plant image?',
+      [
+        { 
+          text: 'Cancel', 
+          style: 'cancel' 
+        },
+        {
+          text: 'Take Photo',
+          onPress: takePhoto
+        },
+        {
+          text: 'Choose from Library',
+          onPress: pickImage
+        }
+      ]
+    );
   };
 
   const identifyPlant = async () => {
@@ -97,15 +149,17 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
         throw new Error('Authentication information not found. Please log in.');
       }
   
-      // Create a file from the image URI
-      const fileResponse = await fetch(image);
-      const fileBlob = await fileResponse.blob();
-  
       // Create form data to send the image
       const formData = new FormData();
       
-      // Append the file as a Blob
-      formData.append('file', fileBlob, 'plant_image.jpg');
+      // Append the file with the correct structure for React Native
+      formData.append('file', {
+        uri: image,
+        type: 'image/jpeg',
+        name: 'plant_image.jpg'
+      } as any);
+  
+      console.log('Sending identification request with image uri:', image);
   
       // Send image to backend for identification
       const response = await fetch(`${API_URL}/api/identify/`, {
@@ -113,6 +167,7 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Accept': 'application/json',
+          // Don't set Content-Type here - it will be set automatically with the correct boundary
         },
         body: formData
       });
@@ -268,6 +323,12 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
     setShowResultCard(false);
   };
 
+  // Dynamic style for the image container
+  const imageContainerStyle = {
+    ...styles.imageContainer,
+    height: image ? 300 : 400, // Taller container when showing options
+  };
+
   // Helper function to render a care info item if it exists (styled like PlantDetailScreen)
   const renderCareInfoItem = (label: string, value?: string) => {
     if (!value) return null;
@@ -386,52 +447,87 @@ const IdentifyScreen = ({ navigation }: IdentifyScreenProps) => {
       contentContainerStyle={styles.scrollContentContainer}
     >
       <View style={styles.container}>
-        <Text style={styles.title}>Identify Plant</Text>
+        <View style={styles.headerContainer}>
+          <Text style={styles.title}>Plant Identifier</Text>
+          <Text style={styles.subtitle}>Take or upload a photo to identify your plant</Text>
+        </View>
         
         {!showResultCard ? (
-          // Show upload area when result card is not visible
-          <View style={styles.uploadArea}>
-            {image ? (
-              <Image source={{ uri: image }} style={styles.image} />
-            ) : (
-              <>
-                <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-                  <Text style={styles.uploadText}>+ Upload Image</Text>
+          <>
+            {/* Image container - adjustable height based on whether image is present */}
+            <View style={imageContainerStyle}>
+              {image ? (
+                <Image 
+                  source={{ uri: image }} 
+                  style={styles.selectedImage} 
+                />
+              ) : (
+                <View style={styles.imageOptionsContainer}>
+                  {/* Decorative plant icon at the top */}
+                  <View style={styles.decorativeIconContainer}>
+                    <Ionicons name="leaf" size={60} color="#4CAF50" />
+                  </View>
+                  
+                  {/* Primary Option: Take Photo */}
+                  <TouchableOpacity style={styles.cameraButton} onPress={takePhoto}>
+                    <Ionicons name="camera" size={30} color="#fff" />
+                    <Text style={styles.cameraText}>Take Photo</Text>
+                  </TouchableOpacity>
+                  
+                  {/* Secondary Option: Upload Image */}
+                  <View style={styles.dividerContainer}>
+                    <View style={styles.divider} />
+                    <Text style={styles.orText}>OR</Text>
+                    <View style={styles.divider} />
+                  </View>
+                  
+                  <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
+                    <Ionicons name="images" size={24} color="#fff" />
+                    <Text style={styles.uploadText}>Choose from Library</Text>
+                  </TouchableOpacity>
+                  
+                  <Text style={styles.helperText}>
+                    For best results, ensure the plant is well-lit and centered in the frame
+                  </Text>
+                </View>
+              )}
+            </View>
+            
+            {/* Buttons shown when image is selected */}
+            {image && (
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity 
+                  style={styles.identifyButton} 
+                  onPress={identifyPlant}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="search" size={24} color="#fff" style={styles.buttonIcon} />
+                      <Text style={styles.buttonText}>Identify Plant</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
-                <Text style={styles.helperText}>
-                  Take a photo or select an image from your gallery
-                </Text>
-              </>
+                <TouchableOpacity 
+                  style={styles.cancelButton}
+                  onPress={() => setImage(null)}
+                  disabled={loading}
+                >
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
             )}
-          </View>
+          </>
         ) : (
           // Show the result card when available
           renderResultCard()
         )}
-        
-        {image && !showResultCard && (
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity 
-              style={styles.identifyButton} 
-              onPress={identifyPlant}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Identify Plant</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.cancelButton}
-              onPress={() => setImage(null)}
-              disabled={loading}
-            >
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
+      
+      {/* Add bottom padding for better scrolling experience */}
+      <View style={styles.bottomPadding} />
     </ScrollView>
   );
 };
@@ -443,49 +539,137 @@ const styles = StyleSheet.create({
   },
   scrollContentContainer: {
     flexGrow: 1,
-    paddingBottom: 30, // Extra padding at the bottom
+    paddingVertical: 10,
   },
   container: {
     alignItems: 'center',
     padding: 20,
     width: '100%',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    marginTop: 10,
-  },
-  uploadArea: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 20,
+  headerContainer: {
     alignItems: 'center',
+    marginBottom: 24,
     width: '100%',
-    height: 300,
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#ddd',
-    borderStyle: 'dashed',
   },
-  image: {
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#3e8e41', 
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  // Base image container style
+  imageContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 20, // More rounded corners
+    width: '100%',
+    // Height is set dynamically in the component
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    overflow: 'hidden',
+    marginBottom: 20,
+    padding: 15, // Add padding inside the container
+  },
+  selectedImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 8,
+    borderRadius: 16, // Rounded corners for the image
+    resizeMode: 'contain', // Ensure the whole image fits
+  },
+  imageOptionsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '90%', // Leave some padding on sides
+    paddingVertical: 20, // More vertical padding
+  },
+  decorativeIconContainer: {
+    marginBottom: 30,
+    backgroundColor: '#e8f5e9',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#c8e6c9',
+  },
+  cameraButton: {
+    backgroundColor: '#4CAF50',
+    padding: 16,
+    borderRadius: 12, // More rounded corners
+    marginBottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  cameraText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    marginLeft: 12,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 24,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e0e0e0',
+  },
+  orText: {
+    marginHorizontal: 16,
+    color: '#666',
+    fontWeight: '600',
   },
   uploadButton: {
-    backgroundColor: '#4CAF50',
-    padding: 15,
-    borderRadius: 5,
-    marginBottom: 20,
+    backgroundColor: '#7CB342',
+    padding: 16,
+    borderRadius: 12, // More rounded corners
+    marginBottom: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 1,
   },
   uploadText: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 12,
   },
   helperText: {
-    color: '#666',
+    color: '#757575',
     textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 20,
+    paddingHorizontal: 20,
   },
   // Results section
   resultsContainer: {
@@ -493,126 +677,155 @@ const styles = StyleSheet.create({
   },
   imageCard: {
     backgroundColor: '#fff',
-    borderRadius: 8,
+    borderRadius: 20, // More rounded corners
     overflow: 'hidden',
-    marginBottom: 16,
+    marginBottom: 20,
+    padding: 15, // Add padding
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   resultImage: {
     width: '100%',
-    height: 200,
-    resizeMode: 'cover',
+    height: 300, // Match the height of the pre-identification container
+    borderRadius: 16, // Rounded corners for the image
+    resizeMode: 'contain', // Show the whole image without cropping
   },
-  // Info card - consistent with PlantDetailScreen
+  // Info card styles
   infoCard: {
     backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: 20, // More rounded corners
+    padding: 24, // More padding
+    marginBottom: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   infoTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 12,
-    color: '#4CAF50',
+    marginBottom: 16,
+    color: '#3e8e41',
   },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: 12, // More vertical padding
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
   infoLabel: {
     fontSize: 16,
-    color: '#666',
+    color: '#555',
+    fontWeight: '500',
   },
   infoValue: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     flex: 1,
     textAlign: 'right',
     paddingLeft: 8,
+    color: '#333',
   },
-  // Care instructions - consistent with PlantDetailScreen
+  // Care instructions
   mainCareInstructions: {
     backgroundColor: '#f1f8e9',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 15,
+    borderRadius: 12, // More rounded corners
+    padding: 16,
+    marginBottom: 16,
     borderLeftWidth: 4,
     borderLeftColor: '#7cb342',
   },
   careInstructionsText: {
     fontSize: 16,
-    lineHeight: 22,
+    lineHeight: 24,
     color: '#33691e',
   },
   // Predictions
   predictionName: {
     fontSize: 16,
+    color: '#333',
   },
   predictionConfidence: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#4CAF50',
   },
   // Action buttons
   buttonContainer: {
     width: '100%',
-    marginTop: 20,
+    marginTop: 16,
+  },
+  buttonIcon: {
+    marginRight: 8,
   },
   identifyButton: {
     backgroundColor: '#4CAF50',
-    padding: 15,
-    borderRadius: 5,
+    padding: 16,
+    borderRadius: 12, // More rounded corners
     alignItems: 'center',
-    marginBottom: 10,
-    height: 54,
+    marginBottom: 16,
+    height: 56,
     justifyContent: 'center',
+    flexDirection: 'row',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
   saveButton: {
     backgroundColor: '#4CAF50',
-    padding: 15,
-    borderRadius: 5,
+    padding: 16,
+    borderRadius: 12, // More rounded corners
     alignItems: 'center',
-    marginBottom: 10,
-    height: 54,
+    marginBottom: 16,
+    height: 56,
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
   buttonText: {
     color: '#fff',
     fontSize: 18,
+    fontWeight: '600',
   },
   cancelButton: {
-    padding: 15,
-    borderRadius: 5,
+    padding: 16,
+    borderRadius: 12, // More rounded corners
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    backgroundColor: '#f8f8f8',
   },
   cancelText: {
-    color: '#666',
+    color: '#555',
     fontSize: 16,
+    fontWeight: '500',
   },
   discardButton: {
-    padding: 15,
-    borderRadius: 5,
+    padding: 16,
+    borderRadius: 12, // More rounded corners
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#ff6b6b',
+    backgroundColor: '#fff',
   },
   discardText: {
     color: '#ff6b6b',
     fontSize: 16,
+    fontWeight: '500',
   },
+  bottomPadding: {
+    height: 40, // Add extra space at the bottom
+  }
 });
 
 export default IdentifyScreen;

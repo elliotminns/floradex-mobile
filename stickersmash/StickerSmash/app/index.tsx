@@ -22,6 +22,7 @@ const MainTabs = () => {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
+        headerShown: false,
         tabBarIcon: ({ focused, color, size }) => {
           let icon = '•'; // Basic placeholder icon
           

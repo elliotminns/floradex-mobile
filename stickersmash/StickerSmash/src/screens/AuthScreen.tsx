@@ -20,9 +20,9 @@ type AuthScreenProps = {
 };
 
 // Define your API URL - update with your backend URL
-const API_URL = 'http://127.0.0.1:8000'; // For web
+//const API_URL = 'http://127.0.0.1:8000'; // For web
 // const API_URL = 'http://10.0.2.2:8000'; // For Android emulator
-// const API_URL = 'http://localhost:8000'; // For iOS simulator
+import { API_URL } from '../types/navigation';
 
 const AuthScreen = ({ navigation }: AuthScreenProps) => {
   const [isLogin, setIsLogin] = useState(true);

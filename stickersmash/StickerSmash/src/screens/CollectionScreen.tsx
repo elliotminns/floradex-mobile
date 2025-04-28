@@ -1,8 +1,21 @@
 // src/screens/CollectionScreen.tsx
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, RefreshControl, Alert, Platform, Image } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  FlatList, 
+  ActivityIndicator, 
+  TouchableOpacity, 
+  RefreshControl, 
+  Alert, 
+  Platform, 
+  Image,
+  SafeAreaView 
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { showMessage, showDeleteConfirmation } from '../utils/alertUtils';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 // Import navigation types
 import { useNavigation } from '@react-navigation/native';
@@ -31,7 +44,8 @@ interface Plant {
   }>;
 }
 
-const API_URL = 'http://127.0.0.1:8000';
+
+import { API_URL } from '../types/navigation';
 
 const CollectionScreen = () => {
   // Use the useNavigation hook with our composite type
@@ -66,7 +80,9 @@ const CollectionScreen = () => {
     try {
       setError(null);
       // Get the authentication token
+      
       const token = await AsyncStorage.getItem('userToken');
+      console.log(token);
       
       if (!token) {
         console.error('No authentication token found');
@@ -80,10 +96,7 @@ const CollectionScreen = () => {
       
       // Try different potential API endpoints
       const endpoints = [
-        '/api/plants',   // Original endpoint
-        '/plants',       // New endpoint
-        '/api/userplants', // Possibly renamed endpoint
-        '/userplants'     // Another possible endpoint
+        '/api/plants/'       // New endpoint
       ];
       
       let response = null;
@@ -197,18 +210,23 @@ const CollectionScreen = () => {
     navigation.navigate('PlantDetail', { plant });
   };
 
+  // Function to navigate to the Identify screen
+  const navigateToIdentify = () => {
+    navigation.navigate('Identify');
+  };
+
   // Render loading state
   if (loading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
+      <SafeAreaView style={[styles.container, styles.centerContent]}>
         <ActivityIndicator size="large" color="#4CAF50" />
         <Text style={styles.loadingText}>Loading your plants...</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>My Plant Collection</Text>
       </View>
@@ -280,27 +298,40 @@ const CollectionScreen = () => {
           </Text>
           <TouchableOpacity 
             style={styles.identifyButton}
-            onPress={() => navigation.navigate('Identify')}
+            onPress={navigateToIdentify}
           >
             <Text style={styles.buttonText}>Identify a Plant</Text>
           </TouchableOpacity>
         </View>
       )}
-    </View>
+
+      {/* Persistent Floating Identify Button */}
+      {plants.length > 0 && (
+        <TouchableOpacity 
+          style={styles.floatingButton}
+          onPress={navigateToIdentify}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="camera" size={24} color="#fff" />
+          <Text style={styles.floatingButtonText}>Identify Plant</Text>
+        </TouchableOpacity>
+      )}
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
     backgroundColor: '#f5f5f5',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
   },
   centerContent: {
     justifyContent: 'center',
@@ -319,6 +350,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
   },
   emptyText: {
     fontSize: 18,
@@ -332,7 +364,8 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   listContent: {
-    paddingBottom: 20,
+    paddingHorizontal: 12,
+    paddingBottom: 100, // Extra padding at bottom to account for floating button
   },
   plantCard: {
     flex: 1,
@@ -428,6 +461,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffebee',
     padding: 15,
     borderRadius: 5,
+    marginHorizontal: 20,
     marginBottom: 20,
   },
   errorText: {
@@ -443,6 +477,29 @@ const styles = StyleSheet.create({
   retryText: {
     color: '#fff',
     fontSize: 14,
+  },
+  // Floating button styles
+  floatingButton: {
+    position: 'absolute',
+    bottom: 15,
+    alignSelf: 'center',
+    backgroundColor: '#4CAF50',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  floatingButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+    marginLeft: 8,
   }
 });
 
